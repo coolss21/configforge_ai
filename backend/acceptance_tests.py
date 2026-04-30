@@ -91,6 +91,15 @@ CASES = [
         "auth_required": False,
         "has_warning": False,
     },
+    {
+        "name": "Legal App (with no_login override)",
+        "prompt": "Build a legal document review app with lawyers, clients, contracts, clauses, risk flags, comments, approvals, and no login.",
+        "mode": "fast",
+        "must_have_tables": ["lawyers", "clients", "contracts", "clauses", "risk_flags", "comments", "approvals", "users"],
+        "must_not_have_tables": ["items", "no_login", "no_logins", "no_auth", "no_auths"],
+        "auth_required": True,
+        "has_warning": True,
+    },
 ]
 
 async def run_tests():

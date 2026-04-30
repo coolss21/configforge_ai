@@ -521,4 +521,15 @@ class CrossLayerValidator:
                     "message": f"Intent entity '{ename}' has no DB table.",
                     "repair_strategy": "add_missing_db_table", "context": {"entity": ename}})
 
+        # 13. Negative requirements as entities
+        for ent in intent_entity_names:
+            if any(neg in ent for neg in ["no_login", "no_auth", "without_login", "no_password"]):
+                errors.append({
+                    "code": "NEGATIVE_REQUIREMENT_AS_ENTITY",
+                    "severity": "high", "layer": "cross_layer",
+                    "message": f"Negative requirement parsed as entity: {ent}",
+                    "repair_strategy": "remove_negative_entity",
+                    "context": {"entity": ent}
+                })
+
         return errors, checks

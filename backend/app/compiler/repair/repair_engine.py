@@ -250,6 +250,25 @@ class RepairEngine:
             return True
 
         # ── Fix: Custom app repair strategies ─────────────────────────────────
+        if strategy == "remove_negative_entity":
+            ename = ctx.get("entity", "")
+            if not ename: return False
+            table_name = ename if ename.endswith("s") else ename + "s"
+            if "database" in config and "tables" in config["database"]:
+                config["database"]["tables"] = [t for t in config["database"]["tables"] if t["name"] not in (ename, table_name)]
+            if "api" in config and "endpoints" in config["api"]:
+                config["api"]["endpoints"] = [e for e in config["api"]["endpoints"] if e.get("entity") not in (ename, table_name)]
+            if "ui" in config and "pages" in config["ui"]:
+                config["ui"]["pages"] = [p for p in config["ui"]["pages"] if table_name not in p.get("route", "")]
+            if "intent" in config and "entities" in config["intent"]:
+                config["intent"]["entities"] = [e for e in config["intent"]["entities"] if e.get("name") != ename]
+            
+            # Enforce auth if it was a negative auth request
+            if "login" in ename or "auth" in ename or "password" in ename:
+                config.setdefault("auth", {})["auth_required"] = True
+                config.setdefault("intent", {}).setdefault("warnings", []).append("Auth enforced. Negative requirement removed.")
+            return True
+
         if strategy == "add_missing_db_table":
             ename = ctx.get("entity", "")
             if not ename:

@@ -142,8 +142,8 @@ def _extract_custom_roles_and_entities(p: str) -> tuple:
         parts = re.split(r",|\band\b", noun_segment)
         for part in parts:
             part = part.strip()
-            # Skip dashboard / control room phrases (they become UI pages, not entities)
-            if any(skip in part for skip in ["dashboard","control room","panel","interface","module"]):
+            # Skip dashboard / negative phrases (they shouldn't be entities)
+            if any(skip in part for skip in ["dashboard","control room","panel","interface","module", "no login", "no auth", "without login", "without authentication", "no password", "no database", "no backend"]):
                 continue
             if not part:
                 continue
@@ -325,10 +325,11 @@ class LLMClient:
             p = raw
 
         # ── 1. Detect app type ──────────────────────────────────────────────
-        sensitive = any(w in p for w in ["banking","bank","finance","financial","insurance"])
+        is_banking = any(w in p for w in ["banking","bank","finance","financial","insurance"])
         healthcare = any(w in p for w in ["hospital","clinic","healthcare","doctor","patient","medical"])
+        sensitive = is_banking or healthcare or any(w in p for w in ["legal", "lawyer", "contract", "case", "education", "public safety", "disaster", "emergency"])
 
-        if sensitive:
+        if is_banking:
             app_type, app_name = "Banking App", "Banking App"
         elif healthcare:
             app_type, app_name = "Healthcare Booking", "Hospital Booking App"
@@ -361,10 +362,18 @@ class LLMClient:
         has_premium  = any(w in p for w in ["premium","plan","subscription","membership"])
         has_analytics = any(w in p for w in ["analytics","reports","reporting","admin analytics","insights","metrics"])
         has_admin_dash = any(w in p for w in ["admin dashboard","admin panel","admin analytics","control room","manager dashboard","warden dashboard","coordinator dashboard"])
-        has_auth = (
-            sensitive or healthcare
-            or any(w in p for w in ["login","auth","users","roles","secure","register","role-based","legal","law","disaster","public safety","emergency"])
-        ) and "no auth" not in p
+        
+        has_auth = sensitive or any(w in p for w in ["login","auth","users","roles","secure","register","role-based"])
+        
+        warnings = []
+        assumptions = ["Standard JWT-based auth", "PostgreSQL backend"]
+        negative_auth = any(w in p for w in ["no login", "no auth", "without login", "without authentication", "no password"])
+        if sensitive and negative_auth:
+            has_auth = True
+            warnings.append("Auth enforced because this is a sensitive domain.")
+            assumptions.append("The no-login request was treated as unsafe for this domain.")
+        elif negative_auth:
+            has_auth = False
 
         # ── 3. Build entities from keywords ─────────────────────────────────
         def field(name, ftype="string", required=True, desc=None):
