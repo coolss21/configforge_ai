@@ -26,6 +26,15 @@ _SKIP_WORDS = {
 
 # Known dashboard/role keyword → role names
 _ROLE_KEYWORDS = {
+    "museum": ["admin", "curator", "staff"],
+    "curator": ["admin", "curator", "staff"],
+    "disaster": ["admin", "coordinator", "volunteer"],
+    "volunteer": ["admin", "coordinator", "volunteer"],
+    "legal": ["admin", "lawyer", "client"],
+    "lawyer": ["admin", "lawyer", "client"],
+    "inventory": ["admin", "staff"],
+    "ngo": ["admin", "fundraiser", "volunteer"],
+    "donation": ["admin", "fundraiser", "volunteer"],
     "manager dashboard": ["admin", "manager", "user"],
     "manager": ["admin", "manager", "user"],
     "warden dashboard": ["admin", "warden", "student"],
@@ -33,7 +42,6 @@ _ROLE_KEYWORDS = {
     "coordinator": ["admin", "coordinator", "volunteer"],
     "verifier": ["admin", "verifier", "buyer"],
     "buyer": ["admin", "buyer", "seller"],
-    "lawyer": ["admin", "lawyer", "client"],
     "doctor": ["admin", "doctor", "patient"],
     "teacher": ["admin", "teacher", "student"],
     "agent": ["admin", "agent", "customer"],
@@ -101,6 +109,12 @@ def _infer_custom_app_type(p: str) -> tuple:
     if len(words) >= 2:
         name = " ".join(w.capitalize() for w in words[:3]) + " App"
         return name, name
+
+    # Overrides for specific detailed app types that shouldn't be guessed generically
+    if any(w in p for w in ["museum", "artifact", "exhibition", "curator", "restoration"]):
+        return "Museum Collection Management App", "Museum Collection Management App"
+    if any(w in p for w in ["disaster", "incident", "shelter", "volunteer", "alert"]):
+        return "Disaster Response Coordination App", "Disaster Response Coordination App"
 
     return "Custom App", "Custom App"
 
@@ -332,7 +346,7 @@ class LLMClient:
             app_type, app_name = "Booking App", "Booking App"
         elif any(w in p for w in ["crm","contact","lead","customer","sales pipeline"]):
             app_type, app_name = "CRM", "CRM App"
-        elif any(w in p for w in ["project","task","kanban","sprint","agile"]):
+        elif any(w in p for w in ["project management","project task","kanban","sprint","agile"]):
             app_type, app_name = "Project Management", "Project App"
         elif any(w in p for w in ["gym","fitness","trainer","workout","membership"]):
             app_type, app_name = "Gym App", "Gym App"
@@ -491,6 +505,7 @@ class LLMClient:
         if has_premium: features.append("premium plans")
         if has_analytics: features.append("admin analytics")
         if has_admin_dash: features.append("admin dashboard")
+        features.extend([e["name"].replace("_", " ") for e in entities])
 
         return {
             "app_name":     app_name,

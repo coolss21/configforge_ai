@@ -58,14 +58,23 @@ def compile_schemas(intent: dict) -> tuple[dict, dict, dict, dict, dict]:
         db["tables"].append({"name": table_name, "fields": fields})
 
     # 2. API Compiler
+    # Build a lookup for fields to generate real request bodies
+    table_to_fields = {t["name"]: t["fields"] for t in db["tables"]}
+
     for table_name in primary_entities:
         req_role = "admin" if table_name in ["users", "roles", "audit_log", "audit_logs"] else ("user" if auth["auth_required"] else None)
         
+        # Build request body excluding generated/system fields
+        req_body = {}
+        for f in table_to_fields.get(table_name, []):
+            if f["name"] not in ["id", "created_at", "updated_at"]:
+                req_body[f["name"]] = "number" if f["type"] == "INTEGER" or f["type"] == "REAL" else "string"
+
         api["endpoints"].extend([
             {"path": f"/api/{table_name}", "method": "GET", "entity": table_name, "operation": "list", "required_role": req_role, "request_body": {}, "response_body": {table_name: []}},
-            {"path": f"/api/{table_name}", "method": "POST", "entity": table_name, "operation": "create", "required_role": req_role, "request_body": {"data": "any"}, "response_body": {"id": "integer"}},
+            {"path": f"/api/{table_name}", "method": "POST", "entity": table_name, "operation": "create", "required_role": req_role, "request_body": req_body if req_body else {"data": "string"}, "response_body": {"id": "integer"}},
             {"path": f"/api/{table_name}/{{id}}", "method": "GET", "entity": table_name, "operation": "read", "required_role": req_role, "request_body": {}, "response_body": {}},
-            {"path": f"/api/{table_name}/{{id}}", "method": "PATCH", "entity": table_name, "operation": "update", "required_role": req_role, "request_body": {"data": "any"}, "response_body": {"updated": True}},
+            {"path": f"/api/{table_name}/{{id}}", "method": "PATCH", "entity": table_name, "operation": "update", "required_role": req_role, "request_body": req_body if req_body else {"data": "string"}, "response_body": {"updated": True}},
             {"path": f"/api/{table_name}/{{id}}", "method": "DELETE", "entity": table_name, "operation": "delete", "required_role": "admin", "request_body": {}, "response_body": {"deleted": True}}
         ])
 
