@@ -217,6 +217,18 @@ class RepairEngine:
                     config["ui"]["pages"] = [p for p in config["ui"]["pages"] if not should_remove(p["route"])]
             return True
 
+        if strategy == "add_field_description":
+            entity = ctx.get("entity", "")
+            field = ctx.get("field", "")
+            if entity and field and "intent" in config:
+                for e in config["intent"].get("entities", []):
+                    if e.get("name") == entity:
+                        for f in e.get("fields", []):
+                            if f.get("name") == field:
+                                f["description"] = f"Field for {field}"
+                                return True
+            return False
+
         if strategy == "add_default_components":
             route = ctx.get("route", "")
             layout = ctx.get("layout", "")

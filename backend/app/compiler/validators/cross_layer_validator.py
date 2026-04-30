@@ -439,4 +439,66 @@ class CrossLayerValidator:
                     "context": {"entity": tbl.get("name")}
                 })
 
+
+        # ════════════════════════════════════════════════════════
+        # 14. Prompt Coverage (TEMPLATE_PROMPT_MISMATCH)
+        # ════════════════════════════════════════════════════════
+        checks += 1
+        app_type = intent.get("app_type", "")
+        template_used = intent.get("template_used", "")
+        app_name = intent.get("app_name", "")
+        flags = intent.get("requested_feature_flags", {})
+        
+        # 10. Prompt Coverage
+        # Check payments
+        if flags.get("payments"):
+            if "payments" not in all_tables:
+                errors.append({
+                    "code": "MISSING_REQUESTED_FEATURE",
+                    "severity": "high", "layer": "cross_layer",
+                    "message": "Payments requested but no payments table found.",
+                    "repair_strategy": "add_missing_logic_table",
+                    "context": {"table": "payments"}
+                })
+        else:
+            if "payments" in all_tables:
+                errors.append({
+                    "code": "UNREQUESTED_MAJOR_FEATURE",
+                    "severity": "medium", "layer": "cross_layer",
+                    "message": "Payments table exists but payments were not requested.",
+                    "repair_strategy": "remove_unrequested_feature",
+                    "context": {"feature": "payments"}
+                })
+                
+        # Check sensitive domain
+        if flags.get("sensitive_domain"):
+            if not auth.get("auth_required"):
+                errors.append({
+                    "code": "MISSING_REQUESTED_FEATURE",
+                    "severity": "high", "layer": "cross_layer",
+                    "message": "Auth required for sensitive domain.",
+                    "repair_strategy": "set_auth_required_true",
+                    "context": {}
+                })
+            if "audit_logs" not in all_tables:
+                errors.append({
+                    "code": "MISSING_REQUESTED_FEATURE",
+                    "severity": "high", "layer": "cross_layer",
+                    "message": "Sensitive domain requires audit_logs table.",
+                    "repair_strategy": "add_missing_logic_table",
+                    "context": {"table": "audit_logs"}
+                })
+                
+        # Descriptions
+        for ent in intent.get("entities", []):
+            for f in ent.get("fields", []):
+                if not f.get("description"):
+                    errors.append({
+                        "code": "MISSING_FIELD_DESCRIPTION",
+                        "severity": "low", "layer": "cross_layer",
+                        "message": f"Field {f.get('name')} missing description.",
+                        "repair_strategy": "add_field_description",
+                        "context": {"entity": ent.get("name"), "field": f.get("name")}
+                    })
+
         return errors, checks

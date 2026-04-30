@@ -41,5 +41,18 @@ class IntentExtractor:
                 features.append(f)
             result["features"] = features
             
+        if result and "entities" in result:
+            entities = []
+            for e in result["entities"]:
+                e_lower = e.get("name", "").lower()
+                is_payment = any(w in e_lower for w in ["payment", "billing"])
+                is_premium = any(w in e_lower for w in ["subscription", "plan"])
+                if is_payment and not has_payments:
+                    continue
+                if is_premium and not has_premium:
+                    continue
+                entities.append(e)
+            result["entities"] = entities
+            
         latency = int((time.time() - start_time) * 1000)
         return result, latency
