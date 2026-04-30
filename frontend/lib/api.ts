@@ -1,6 +1,6 @@
 import { GenerateResponse } from './types';
 
-const API_URL = "http://localhost:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : "http://localhost:8000");
 
 export const generateConfig = async (prompt: string, mode: 'fast' | 'quality'): Promise<GenerateResponse> => {
   const response = await fetch(`${API_URL}/generate`, {

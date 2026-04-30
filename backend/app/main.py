@@ -19,3 +19,11 @@ app.add_middleware(
 app.include_router(routes_health.router)
 app.include_router(routes_generate.router)
 app.include_router(routes_evaluate.router)
+
+@app.get("/")
+def read_root():
+    return {
+        "status": "ConfigForge AI Backend is Running",
+        "docs_url": "/docs",
+        "frontend_note": "This is the API backend. Please visit the Vercel URL for the UI."
+    }
