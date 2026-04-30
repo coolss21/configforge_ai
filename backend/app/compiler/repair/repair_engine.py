@@ -29,6 +29,7 @@ class RepairEngine:
     """
 
     async def run(self, config: dict, mode: str) -> dict:
+        self._normalize_intent(config)
         validator   = MasterValidator()
         start       = time.perf_counter()
         report      = validator.validate(config)
@@ -72,6 +73,7 @@ class RepairEngine:
                 if fixed:
                     repaired_layers.add(layer)
 
+            self._normalize_intent(config)
             report = validator.validate(config)
             config["validation_report"] = report
 
@@ -86,6 +88,58 @@ class RepairEngine:
             "repair_time_ms":    elapsed_ms
         }
         return config
+
+    def _normalize_intent(self, config: dict):
+        intent = config.get("intent", {})
+        if not isinstance(intent, dict):
+            return
+
+        # normalize_missing_required_metadata
+        if not intent.get("app_name"): intent["app_name"] = "Generated App"
+        if not intent.get("app_type"): intent["app_type"] = "Generic"
+        if not intent.get("description"): intent["description"] = "Generated application."
+        if not intent.get("primary_users"): intent["primary_users"] = ["user"]
+        if not intent.get("features"): intent["features"] = []
+        if not intent.get("permissions"): intent["permissions"] = ["read", "write"]
+        if not intent.get("business_rules"): intent["business_rules"] = []
+        if not intent.get("integrations"): intent["integrations"] = []
+        if not intent.get("ambiguities"): intent["ambiguities"] = []
+        if not intent.get("assumptions"): intent["assumptions"] = ["Assumed standard DB"]
+
+        # normalize_intent_fields / normalize_entity_descriptions
+        entities = intent.get("entities", [])
+        if not isinstance(entities, list):
+            return
+            
+        for e in entities:
+            if not isinstance(e, dict): continue
+            if not e.get("description"): e["description"] = f"Entity representing {e.get('name', 'item')}"
+            
+            fields = e.get("fields", [])
+            if not isinstance(fields, list): continue
+            
+            for f in fields:
+                if not isinstance(f, dict): continue
+                if not f.get("name"): f["name"] = "unknown_field"
+                if not f.get("type"): f["type"] = "string"
+                if "required" not in f: f["required"] = False
+                
+                if not f.get("description"):
+                    fn = f["name"].lower()
+                    if fn == "id": desc = "Primary key"
+                    elif fn == "name": desc = "Display name"
+                    elif fn == "email": desc = "Email address"
+                    elif fn == "created_at": desc = "Creation timestamp"
+                    elif fn == "updated_at": desc = "Last update timestamp"
+                    elif fn == "status": desc = "Current status"
+                    elif fn == "amount": desc = "Payment amount"
+                    elif fn == "provider": desc = "Payment provider"
+                    elif fn == "user_id": desc = "Reference to user"
+                    elif fn == "plan_id": desc = "Reference to plan"
+                    elif fn == "started_at": desc = "Subscription start timestamp"
+                    elif fn == "expires_at": desc = "Subscription expiry timestamp"
+                    else: desc = f"Field for {fn}"
+                    f["description"] = desc
 
     # ── Strategy dispatcher ────────────────────────────────────────────────────
     def _apply_repair(self, config: dict, strategy: str, ctx: dict, err: dict) -> bool:
@@ -132,6 +186,70 @@ class RepairEngine:
                 return self._add_audit_log_table(config)
             return self._add_db_table(config, table)
 
+        if strategy == "remove_unrequested_feature":
+            feature = ctx.get("feature", "")
+            if feature:
+                f_lower = feature.lower()
+                words_to_remove = []
+                if "payment" in f_lower:
+                    words_to_remove = ["payment", "billing"]
+                elif "subscription" in f_lower or "plan" in f_lower:
+                    words_to_remove = ["subscription", "plan"]
+                elif "analytic" in f_lower:
+                    words_to_remove = ["analytic", "dashboard"]
+                else:
+                    words_to_remove = [f_lower[:-1] if f_lower.endswith('s') else f_lower]
+
+                def should_remove(name):
+                    n = name.lower()
+                    return any(w in n for w in words_to_remove)
+
+                if "intent" in config:
+                    if "features" in config["intent"]:
+                        config["intent"]["features"] = [f for f in config["intent"]["features"] if not should_remove(f)]
+                    if "entities" in config["intent"]:
+                        config["intent"]["entities"] = [e for e in config["intent"]["entities"] if not should_remove(e["name"])]
+                if "database" in config and "tables" in config["database"]:
+                    config["database"]["tables"] = [t for t in config["database"]["tables"] if not should_remove(t["name"])]
+                if "api" in config and "endpoints" in config["api"]:
+                    config["api"]["endpoints"] = [e for e in config["api"]["endpoints"] if not (should_remove(e["path"]) or should_remove(e.get("entity", "")))]
+                if "ui" in config and "pages" in config["ui"]:
+                    config["ui"]["pages"] = [p for p in config["ui"]["pages"] if not should_remove(p["route"])]
+            return True
+
+        if strategy == "add_default_components":
+            route = ctx.get("route", "")
+            layout = ctx.get("layout", "")
+            for page in config.get("ui", {}).get("pages", []):
+                if page.get("route") == route:
+                    if layout == "dashboard":
+                        page["components"] = [{"type": "stat_card", "entity": "users", "api_endpoint": "/api/users", "fields": ["id"]}]
+                    elif layout == "list":
+                        page["components"] = [{"type": "data_table", "entity": "users", "api_endpoint": "/api/users", "fields": ["id"]}]
+                    else:
+                        page["components"] = [{"type": "form", "entity": "users", "api_endpoint": "/api/users", "fields": ["id"]}]
+            return True
+
+        if strategy == "populate_architecture":
+            mod_name = ctx.get("module", "")
+            for mod in config.get("architecture", {}).get("modules", []):
+                if mod.get("name") == mod_name:
+                    mod["entities_used"] = ["user"]
+            return True
+
+        if strategy == "enhance_db_schema":
+            entity = ctx.get("entity", "")
+            return self._add_db_field(config, entity, "name")
+
+        if strategy == "add_analytics_schema":
+            return True
+            
+        if strategy == "add_payment_schema":
+            return True
+            
+        if strategy == "add_subscription_schema":
+            return True
+
         return False
 
     # ── Atomic repair helpers ──────────────────────────────────────────────────
@@ -155,17 +273,24 @@ class RepairEngine:
     def _add_db_field(self, config: dict, entity: str, field: str) -> bool:
         if not entity or not field:
             return False
-        e_lower = entity.lower()
-        for tbl in config["database"].get("tables", []):
-            t_lower = tbl["name"].lower()
-            if t_lower in (e_lower, e_lower + "s", e_lower.rstrip("s"), e_lower + "es"):
-                existing = {f["name"].lower() for f in tbl.get("fields", [])}
-                if field.lower() not in existing:
-                    tbl.setdefault("fields", []).append({
-                        "name": field, "type": "TEXT",
-                        "primary_key": False, "nullable": True, "unique": False
-                    })
-                return True
+        
+        tables_lower = {t["name"].lower(): t for t in config.get("database", {}).get("tables", [])}
+        n = entity.lower()
+        target_tbl = (
+            tables_lower.get(n)
+            or tables_lower.get(n + "s")
+            or tables_lower.get(n.rstrip("s") if len(n) > 2 else n)
+            or tables_lower.get(n + "es")
+        )
+        
+        if target_tbl:
+            existing = {f["name"].lower() for f in target_tbl.get("fields", [])}
+            if field.lower() not in existing:
+                target_tbl.setdefault("fields", []).append({
+                    "name": field, "type": "TEXT",
+                    "primary_key": False, "nullable": True, "unique": False
+                })
+            return True
         return False
 
     def _add_auth_role(self, config: dict, role: str) -> bool:

@@ -24,6 +24,8 @@ def parse_prompt_for_cache(prompt: str):
         app_type = "LMS"
     elif any(w in lower_prompt for w in ["ticket", "helpdesk", "agent", "sla"]):
         app_type = "Helpdesk"
+    elif any(w in lower_prompt for w in ["hospital", "clinic", "healthcare", "doctor", "patient"]):
+        app_type = "Healthcare Booking"
     elif any(w in lower_prompt for w in ["booking", "appointment", "calendar", "service"]):
         app_type = "Booking"
 
