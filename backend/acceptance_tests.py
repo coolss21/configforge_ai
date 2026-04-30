@@ -86,9 +86,9 @@ CASES = [
         "name": "Carbon Credit Marketplace",
         "prompt": "Build a carbon credit marketplace with verifiers, projects, certificates, buyers, payments, and audit trail.",
         "mode": "fast",
-        "must_have_tables": ["verifiers", "projects", "certificates", "buyers", "payments", "audit_trails"],
+        "must_have_tables": ["verifiers", "projects", "certificates", "buyers", "payments", "audit_trails", "users"],
         "must_not_have_tables": ["items"],
-        "auth_required": False,
+        "auth_required": True,
         "has_warning": False,
     },
     {
@@ -99,6 +99,15 @@ CASES = [
         "must_not_have_tables": ["items", "no_login", "no_logins", "no_auth", "no_auths"],
         "auth_required": True,
         "has_warning": True,
+    },
+    {
+        "name": "Payment App",
+        "prompt": "Build a payment app.",
+        "mode": "fast",
+        "must_have_tables": ["users", "payments", "payment_methods", "transactions"],
+        "must_not_have_tables": ["items"],
+        "auth_required": True,
+        "has_warning": False,
     },
 ]
 

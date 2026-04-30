@@ -40,7 +40,9 @@ _ROLE_KEYWORDS = {
     "warden dashboard": ["admin", "warden", "student"],
     "warden": ["admin", "warden", "student"],
     "coordinator": ["admin", "coordinator", "volunteer"],
-    "verifier": ["admin", "verifier", "buyer"],
+    "carbon credit": ["admin", "verifier", "buyer", "project_owner"],
+    "marketplace": ["admin", "buyer", "seller"],
+    "verifier": ["admin", "verifier", "buyer", "project_owner"],
     "buyer": ["admin", "buyer", "seller"],
     "doctor": ["admin", "doctor", "patient"],
     "teacher": ["admin", "teacher", "student"],
@@ -333,6 +335,8 @@ class LLMClient:
             app_type, app_name = "Banking App", "Banking App"
         elif healthcare:
             app_type, app_name = "Healthcare Booking", "Hospital Booking App"
+        elif any(w in p for w in ["payment", "billing"]):
+            app_type, app_name = "Payment App", "Payment App"
         elif any(w in p for w in ["lms","learning management","student","teacher","course","assignment","submission"]):
             app_type, app_name = "LMS", "LMS App"
         elif any(w in p for w in ["inventory","stock","supplier","warehouse"]):
@@ -359,10 +363,13 @@ class LLMClient:
 
         # ── 2. Feature flags ────────────────────────────────────────────────
         has_payments = any(w in p for w in ["payment","invoice","billing","checkout","paid","transaction"])
+        has_marketplace = any(w in p for w in ["marketplace", "marketplace app"])
+        has_audit_trail = any(w in p for w in ["audit trail", "audit_log", "audit log"])
         has_premium  = any(w in p for w in ["premium","plan","subscription","membership"])
         has_analytics = any(w in p for w in ["analytics","reports","reporting","admin analytics","insights","metrics"])
         has_admin_dash = any(w in p for w in ["admin dashboard","admin panel","admin analytics","control room","manager dashboard","warden dashboard","coordinator dashboard"])
         
+        sensitive = is_banking or healthcare or has_payments or has_marketplace or has_audit_trail or any(w in p for w in ["legal", "lawyer", "contract", "case", "education", "public safety", "disaster", "emergency", "insurance", "finance"])
         has_auth = sensitive or any(w in p for w in ["login","auth","users","roles","secure","register","role-based"])
         
         warnings = []
@@ -374,6 +381,8 @@ class LLMClient:
             assumptions.append("The no-login request was treated as unsafe for this domain.")
         elif negative_auth:
             has_auth = False
+        elif sensitive and "login" not in p and "auth" not in p and "users" not in p and "roles" not in p and "secure" not in p and "register" not in p and "role-based" not in p:
+            assumptions.append("Auth enforced because the app handles sensitive or financial workflows.")
 
         # ── 3. Build entities from keywords ─────────────────────────────────
         def field(name, ftype="string", required=True, desc=None):
@@ -477,9 +486,17 @@ class LLMClient:
             # Dynamic custom app: extract entities from the prompt
             roles, entities = _extract_custom_roles_and_entities(p)
             if not entities:
-                # Truly vague prompt fallback
-                roles = ["admin", "user"]
-                entities = [entity("item", [field("id","number"), field("name",desc="Item name"), field("status",desc="Status")])]
+                if app_type == "Payment App":
+                    roles = ["admin", "user"]
+                    entities = [
+                        entity("payment", [field("id","number"), field("user_id","number"), field("amount","number"), field("status","string")]),
+                        entity("payment_method", [field("id","number"), field("user_id","number"), field("type","string"), field("last_four","string")]),
+                        entity("transaction", [field("id","number"), field("payment_id","number"), field("amount","number"), field("status","string")])
+                    ]
+                else:
+                    # Truly vague prompt fallback
+                    roles = ["admin", "user"]
+                    entities = [entity("item", [field("id","number"), field("name",desc="Item name"), field("status",desc="Status")])]
 
         # ── 4. Business rules from keywords ─────────────────────────────────
         rules = []
