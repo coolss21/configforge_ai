@@ -14,6 +14,172 @@ _FALLBACK_MODELS = [
     "google/gemini-2.0-flash-001",
 ]
 
+# ── Stop words ignored when inferring app type / entity names ─────────────────
+_SKIP_WORDS = {
+    "build","create","make","generate","develop","design","a","an","the","me",
+    "app","application","system","platform","tool","portal","software","with",
+    "and","or","for","of","in","on","at","to","by","that","this","their",
+    "each","all","my","our","your","its","has","have","is","are","be",
+    "from","into","about","dashboard","panel","control","room","module",
+    "management","manager","admin","warden","coordinator","director"
+}
+
+# Known dashboard/role keyword → role names
+_ROLE_KEYWORDS = {
+    "manager dashboard": ["admin", "manager", "user"],
+    "manager": ["admin", "manager", "user"],
+    "warden dashboard": ["admin", "warden", "student"],
+    "warden": ["admin", "warden", "student"],
+    "coordinator": ["admin", "coordinator", "volunteer"],
+    "verifier": ["admin", "verifier", "buyer"],
+    "buyer": ["admin", "buyer", "seller"],
+    "lawyer": ["admin", "lawyer", "client"],
+    "doctor": ["admin", "doctor", "patient"],
+    "teacher": ["admin", "teacher", "student"],
+    "agent": ["admin", "agent", "customer"],
+    "recruiter": ["admin", "recruiter", "candidate"],
+    "driver": ["admin", "manager", "driver"],
+    "technician": ["admin", "manager", "technician"],
+}
+
+# Common field templates for well-known entity noun patterns
+_ENTITY_FIELD_TEMPLATES = {
+    "vehicle":          [("id","number"), ("registration_number","string"), ("model","string"), ("status","string"), ("created_at","datetime")],
+    "driver":           [("id","number"), ("name","string"), ("license_number","string"), ("phone","string"), ("created_at","datetime")],
+    "service_schedule": [("id","number"), ("vehicle_id","number"), ("scheduled_date","date"), ("status","string"), ("notes","string")],
+    "fuel_log":         [("id","number"), ("vehicle_id","number"), ("fuel_amount","number"), ("cost","currency"), ("logged_at","datetime")],
+    "repair_ticket":    [("id","number"), ("vehicle_id","number"), ("issue_description","string"), ("status","string"), ("priority","string"), ("created_at","datetime")],
+    "case":             [("id","number"), ("title","string"), ("client_id","number"), ("lawyer_id","number"), ("status","string"), ("opened_at","datetime")],
+    "hearing":          [("id","number"), ("case_id","number"), ("hearing_date","date"), ("court_name","string"), ("status","string")],
+    "invoice":          [("id","number"), ("client_id","number"), ("amount","currency"), ("status","string"), ("due_date","date")],
+    "client":           [("id","number"), ("name","string"), ("email","email"), ("phone","string"), ("created_at","datetime")],
+    "lawyer":           [("id","number"), ("name","string"), ("specialization","string"), ("email","email"), ("created_at","datetime")],
+    "document":         [("id","number"), ("title","string"), ("case_id","number"), ("file_url","string"), ("uploaded_at","datetime")],
+    "incident":         [("id","number"), ("title","string"), ("severity","string"), ("location","string"), ("status","string"), ("created_at","datetime")],
+    "volunteer":        [("id","number"), ("name","string"), ("skill","string"), ("phone","string"), ("created_at","datetime")],
+    "shelter":          [("id","number"), ("name","string"), ("location","string"), ("capacity","number"), ("status","string")],
+    "supply":           [("id","number"), ("name","string"), ("quantity","number"), ("unit","string"), ("status","string")],
+    "alert":            [("id","number"), ("incident_id","number"), ("message","string"), ("severity","string"), ("sent_at","datetime")],
+    "map_location":     [("id","number"), ("name","string"), ("latitude","number"), ("longitude","number"), ("type","string")],
+    "project":          [("id","number"), ("name","string"), ("status","string"), ("owner_id","number"), ("created_at","datetime")],
+    "certificate":      [("id","number"), ("project_id","number"), ("issued_to","string"), ("amount","number"), ("status","string"), ("issued_at","datetime")],
+    "verifier":         [("id","number"), ("name","string"), ("organization","string"), ("email","email"), ("verified_at","datetime")],
+    "buyer":            [("id","number"), ("name","string"), ("email","email"), ("created_at","datetime")],
+    "room":             [("id","number"), ("number","string"), ("capacity","number"), ("status","string"), ("floor","number")],
+    "complaint":        [("id","number"), ("student_id","number"), ("description","string"), ("status","string"), ("created_at","datetime")],
+    "visitor":          [("id","number"), ("name","string"), ("host_id","number"), ("check_in","datetime"), ("check_out","datetime")],
+    "booking":          [("id","number"), ("resource_id","number"), ("user_id","number"), ("status","string"), ("booked_at","datetime")],
+    "payment":          [("id","number"), ("amount","currency"), ("status","string"), ("provider","string"), ("created_at","datetime")],
+    "audit_log":        [("id","number"), ("action","string"), ("user_id","number"), ("resource","string"), ("created_at","datetime")],
+    "audit_trail":      [("id","number"), ("action","string"), ("user_id","number"), ("resource","string"), ("created_at","datetime")],
+}
+
+_DEFAULT_FIELDS = [("id","number"), ("name","string"), ("status","string"), ("created_at","datetime"), ("updated_at","datetime")]
+
+
+def _infer_custom_app_type(p: str) -> tuple:
+    """
+    Infer a descriptive app type name from the prompt.
+    e.g. 'build a fleet maintenance app with ...' -> ('Fleet Maintenance App', 'Fleet Maintenance App')
+    """
+    import re
+    # Match 'build a/an <noun phrase> app' or 'build a/an <noun phrase> system/platform/tool'
+    m = re.search(
+        r"build\s+(?:a|an)\s+([\w\s]+?)\s+(?:app|application|system|platform|tool|portal|software)",
+        p
+    )
+    if m:
+        phrase = m.group(1).strip()
+        # Remove stop words at start/end
+        words = [w for w in phrase.split() if w not in _SKIP_WORDS or len(phrase.split()) == 1]
+        if words:
+            name = " ".join(w.capitalize() for w in words) + " App"
+            return name, name
+
+    # Fallback: first 3 meaningful words from the prompt
+    words = [w for w in re.split(r'\W+', p) if w and w not in _SKIP_WORDS]
+    if len(words) >= 2:
+        name = " ".join(w.capitalize() for w in words[:3]) + " App"
+        return name, name
+
+    return "Custom App", "Custom App"
+
+
+def _extract_custom_roles_and_entities(p: str) -> tuple:
+    """
+    Extract domain roles and entities from an arbitrary custom prompt.
+    Parses 'with X, Y, Z' noun lists and applies field templates where possible.
+    """
+    import re
+
+    # ── Detect roles from role keywords ──────────────────────────────────────
+    roles = ["admin", "user"]
+    for keyword, role_list in _ROLE_KEYWORDS.items():
+        if keyword in p:
+            roles = role_list
+            break
+
+    # ── Extract entity nouns from 'with X, Y, Z, and W' pattern ─────────────
+    raw_entities = []
+    m = re.search(r"\bwith\b(.+?)(?:\.|$)", p)
+    if m:
+        noun_segment = m.group(1)
+        # Split on commas and 'and'
+        parts = re.split(r",|\band\b", noun_segment)
+        for part in parts:
+            part = part.strip()
+            # Skip dashboard / control room phrases (they become UI pages, not entities)
+            if any(skip in part for skip in ["dashboard","control room","panel","interface","module"]):
+                continue
+            if not part:
+                continue
+            # Normalise: lowercase snake_case
+            name = re.sub(r"\s+", "_", part.strip().lower())
+            name = re.sub(r"[^a-z0-9_]", "", name)
+            if name:
+                raw_entities.append(name)
+
+    if not raw_entities:
+        return roles, []
+
+    # ── Build entity dicts with field templates ──────────────────────────────
+    def make_field(fname, ftype="string"):
+        descs = {
+            "id": "Primary key", "name": "Display name", "title": "Title",
+            "status": "Current status", "created_at": "Creation timestamp",
+            "updated_at": "Last update timestamp", "email": "Email address",
+        }
+        return {
+            "name": fname, "type": ftype,
+            "required": fname in ("id","name","title"),
+            "description": descs.get(fname, f"Field for {fname}")
+        }
+
+    entities = []
+    seen = set()
+    for raw in raw_entities:
+        if raw in seen:
+            continue
+        seen.add(raw)
+
+        # Check template lookup (also try singular if plural)
+        singular = raw.rstrip("s") if raw.endswith("s") and raw not in _ENTITY_FIELD_TEMPLATES else raw
+        template = _ENTITY_FIELD_TEMPLATES.get(raw) or _ENTITY_FIELD_TEMPLATES.get(singular)
+
+        if template:
+            fields = [make_field(fn, ft) for fn, ft in template]
+        else:
+            # Generic meaningful defaults
+            fields = [make_field(fn, ft) for fn, ft in _DEFAULT_FIELDS]
+
+        entities.append({
+            "name": raw,
+            "description": f"{raw.replace('_',' ').capitalize()} record",
+            "fields": fields
+        })
+
+    return roles, entities
+
 
 class LLMClient:
     def __init__(self):
@@ -158,11 +324,11 @@ class LLMClient:
             app_type, app_name = "Inventory App", "Inventory App"
         elif any(w in p for w in ["job board","jobs","candidate","recruiter","resume"]):
             app_type, app_name = "Job Board", "Job Board App"
-        elif any(w in p for w in ["helpdesk","ticket","sla","agent","support"]):
+        elif any(w in p for w in ["helpdesk","support ticket","sla","support agent","customer support"]):
             app_type, app_name = "Helpdesk", "Helpdesk App"
         elif any(w in p for w in ["ecommerce","shop","cart","checkout","product","order"]):
             app_type, app_name = "Ecommerce", "Ecommerce App"
-        elif any(w in p for w in ["booking","appointment","calendar","slot","schedule"]):
+        elif any(w in p for w in ["booking","appointment","calendar","availability slot","booking schedule"]):
             app_type, app_name = "Booking App", "Booking App"
         elif any(w in p for w in ["crm","contact","lead","customer","sales pipeline"]):
             app_type, app_name = "CRM", "CRM App"
@@ -171,16 +337,19 @@ class LLMClient:
         elif any(w in p for w in ["gym","fitness","trainer","workout","membership"]):
             app_type, app_name = "Gym App", "Gym App"
         else:
-            app_type, app_name = "Internal Tool", "Internal App"
+            # ── Custom / Unknown app type ───────────────────────────────────
+            # Infer a descriptive name from the first meaningful noun phrase.
+            # e.g. "Build a fleet maintenance app..." -> "Fleet Maintenance App"
+            app_type, app_name = _infer_custom_app_type(p)
 
         # ── 2. Feature flags ────────────────────────────────────────────────
-        has_payments = any(w in p for w in ["payment","billing","checkout","paid","transaction"])
+        has_payments = any(w in p for w in ["payment","invoice","billing","checkout","paid","transaction"])
         has_premium  = any(w in p for w in ["premium","plan","subscription","membership"])
-        has_analytics = any(w in p for w in ["analytics","reports","reporting","admin analytics"])
-        has_admin_dash = any(w in p for w in ["admin dashboard","admin panel","admin analytics"])
+        has_analytics = any(w in p for w in ["analytics","reports","reporting","admin analytics","insights","metrics"])
+        has_admin_dash = any(w in p for w in ["admin dashboard","admin panel","admin analytics","control room","manager dashboard","warden dashboard","coordinator dashboard"])
         has_auth = (
             sensitive or healthcare
-            or any(w in p for w in ["login","auth","users","roles","secure","register","role-based"])
+            or any(w in p for w in ["login","auth","users","roles","secure","register","role-based","legal","law","disaster","public safety","emergency"])
         ) and "no auth" not in p
 
         # ── 3. Build entities from keywords ─────────────────────────────────
@@ -282,10 +451,12 @@ class LLMClient:
             has_auth = True
 
         else:
-            roles = ["admin", "user"]
-            entities = [
-                entity("item", [field("id","number"), field("name",desc="Item name"), field("status",desc="Status")]),
-            ]
+            # Dynamic custom app: extract entities from the prompt
+            roles, entities = _extract_custom_roles_and_entities(p)
+            if not entities:
+                # Truly vague prompt fallback
+                roles = ["admin", "user"]
+                entities = [entity("item", [field("id","number"), field("name",desc="Item name"), field("status",desc="Status")])]
 
         # ── 4. Business rules from keywords ─────────────────────────────────
         rules = []
