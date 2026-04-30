@@ -77,7 +77,13 @@ class RefinementLayer:
                 "config_hash": config_hash,
                 "trace_id": trace_id,
                 "assumptions": intent.get("assumptions", []),
-                "warnings": []
+                "warnings": [],
+                "input_prompt_hash": intent.get("input_prompt_hash", ""),
+                "detected_app_type": intent.get("app_type", "Unknown"),
+                "detected_features": intent.get("features", []),
+                "template_used": intent.get("template_used", "generic"),
+                "generation_strategy": "template" if mode == "fast" else "llm_dynamic",
+                "fallback_used": intent.get("fallback_used", False)
             },
             **config,
             "validation_report": {

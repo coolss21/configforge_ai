@@ -326,4 +326,47 @@ class CrossLayerValidator:
                 if not matched:
                     checks += 1  # count the lookup as a check
 
+        # ════════════════════════════════════════════════════════
+        # 9. Requested Feature Checks
+        # ════════════════════════════════════════════════════════
+        features_lower = [f.lower() for f in intent.get("features", [])]
+        
+        # 9a. Payments check
+        if "payments" in features_lower or "payment" in features_lower:
+            checks += 1
+            if "payments" not in all_tables:
+                errors.append({
+                    "code": "MISSING_PAYMENT_SCHEMA",
+                    "severity": "high", "layer": "cross_layer",
+                    "message": "Prompt requested payments but 'payments' table is missing.",
+                    "repair_strategy": "add_payment_schema",
+                    "context": {"feature": "payments"}
+                })
+                
+        # 9b. Subscriptions check
+        if "premium plan" in features_lower or "subscriptions" in features_lower or "subscription" in features_lower:
+            checks += 1
+            if "plans" not in all_tables and "subscriptions" not in all_tables:
+                errors.append({
+                    "code": "MISSING_SUBSCRIPTION_SCHEMA",
+                    "severity": "high", "layer": "cross_layer",
+                    "message": "Prompt requested premium plans but 'plans' or 'subscriptions' tables are missing.",
+                    "repair_strategy": "add_subscription_schema",
+                    "context": {"feature": "premium"}
+                })
+                
+        # 9c. Analytics check
+        if "admin analytics" in features_lower or "analytics" in features_lower:
+            checks += 1
+            has_analytics_api = any("analytics" in ep.get("path", "") for ep in api.get("endpoints", []))
+            has_analytics_ui = any("analytics" in page.get("route", "") for page in ui.get("pages", []))
+            if not has_analytics_api and not has_analytics_ui:
+                errors.append({
+                    "code": "MISSING_ANALYTICS_SCHEMA",
+                    "severity": "high", "layer": "cross_layer",
+                    "message": "Prompt requested analytics but no analytics endpoint or UI page is present.",
+                    "repair_strategy": "add_analytics_schema",
+                    "context": {"feature": "analytics"}
+                })
+
         return errors, checks

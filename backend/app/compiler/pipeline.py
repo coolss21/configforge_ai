@@ -13,6 +13,30 @@ from app.core.utils import generate_hash
 _PIPELINE_CACHE: dict = {}
 
 
+
+def parse_prompt_for_cache(prompt: str):
+    lower_prompt = prompt.lower().strip()
+    
+    app_type = "CRM"
+    if any(w in lower_prompt for w in ["inventory", "stock", "supplier"]):
+        app_type = "Inventory"
+    elif any(w in lower_prompt for w in ["student", "teacher", "course", "assignment"]):
+        app_type = "LMS"
+    elif any(w in lower_prompt for w in ["ticket", "helpdesk", "agent", "sla"]):
+        app_type = "Helpdesk"
+    elif any(w in lower_prompt for w in ["booking", "appointment", "calendar", "service"]):
+        app_type = "Booking"
+
+    features = []
+    if any(w in lower_prompt for w in ["payment", "payments", "checkout", "billing"]):
+        features.append("payments")
+    if any(w in lower_prompt for w in ["premium", "plan", "subscription", "membership"]):
+        features.append("premium plan")
+    if any(w in lower_prompt for w in ["analytics", "reports", "admin analytics"]):
+        features.append("admin analytics")
+        
+    return lower_prompt, app_type, sorted(features)
+
 class CompilerPipeline:
     def __init__(self):
         self.intent_extractor = IntentExtractor()
@@ -27,7 +51,8 @@ class CompilerPipeline:
         pipeline_trace = []
 
         # Fix 8: check cache by prompt hash
-        prompt_hash = generate_hash({"prompt": prompt, "mode": mode})
+        lower_prompt, app_type, features = parse_prompt_for_cache(prompt)
+        prompt_hash = generate_hash({"prompt": lower_prompt, "mode": mode, "app_type": app_type, "features": features})
         if prompt_hash in _PIPELINE_CACHE:
             cached = _PIPELINE_CACHE[prompt_hash]
             cached["trace_id"] = trace_id   # fresh trace id for each call
@@ -36,9 +61,17 @@ class CompilerPipeline:
 
         # ── Stage 1: Intent extraction ────────────────────────────────────────
         intent, lat1 = await self.intent_extractor.run(prompt, mode)
+        
+        # Inject metadata
+        intent["input_prompt_hash"] = prompt_hash
+        intent["app_type"] = app_type
+        intent["features"] = list(set(intent.get("features", []) + features))
+        intent["template_used"] = app_type.lower()
+        intent["fallback_used"] = mode == "fast"
+        
         pipeline_trace.append({
             "stage": "Intent Extraction", "status": "success",
-            "latency_ms": lat1, "repair_attempts": 0, "notes": []
+            "latency_ms": lat1, "repair_attempts": 0, "notes": [f"Extracted features: {', '.join(intent['features'])}"]
         })
 
         # ── Stage 2: Architecture design ──────────────────────────────────────
